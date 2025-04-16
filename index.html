@@ -1,0 +1,230 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row =>
+                    row.some(cell => cell !== '' && cell !== null && cell !== undefined)
+                );
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZMAIL</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+	<link rel="shortcut icon" type="image/x-icon" href="Zmail-modified.png">
+</head>
+<body class="bg-gradient-to-r from-blue-100 to-purple-100 min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-4xl bg-white rounded-2xl shadow-xl p-8">
+        <h1 class="text-4xl font-bold text-center text-gray-800 mb-8">ZMAIL</h1>
+
+        <!-- Auth Section -->
+        <div id="authSection" class="space-y-6">
+            <div id="loginForm">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Log In</h2>
+                <input id="loginEmail" type="email" placeholder="Your Email" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                <input id="loginPassword" type="password" placeholder="Password" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mt-4" required>
+                <button id="loginButton" onclick="login()" class="w-full mt-4 bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 transition">Log In</button>
+                <p class="text-center mt-4 text-gray-600">No account? <a href="#" onclick="showSignup()" class="text-blue-600 hover:underline">Sign Up</a></p>
+            </div>
+            <div id="signupForm" class="hidden">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Sign Up</h2>
+                <input id="signupEmail" type="email" placeholder="Your Email" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                <input id="signupPassword" type="password" placeholder="Create Password" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mt-4" required>
+                <button onclick="signup()" class="w-full mt-4 bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 transition">Sign Up</button>
+                <p class="text-center mt-4 text-gray-600">Already have an account? <a href="#" onclick="showLogin()" class="text-blue-600 hover:underline">Log In</a></p>
+            </div>
+        </div>
+
+        <!-- Main App (Hidden until logged in) -->
+        <div id="appSection" class="hidden space-y-6">
+            <div class="flex justify-between items-center">
+                <h2 class="text-2xl font-semibold text-gray-700">Welcome, <span id="userEmailDisplay"></span></h2>
+                <button onclick="logout()" class="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700 transition">Log Out</button>
+            </div>
+
+            <!-- Compose Section -->
+            <div class="compose-section bg-gray-50 p-6 rounded-lg">
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Compose Message</h3>
+                <input id="recipientEmail" type="email" placeholder="Recipient's Email" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                <input id="subject" type="text" placeholder="Subject" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mt-4" required>
+                <textarea id="message" placeholder="Your Message" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mt-4" rows="4" required></textarea>
+                <button onclick="sendMessage()" class="w-full mt-4 bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 transition">Send Message</button>
+            </div>
+
+            <!-- Messages Section -->
+            <div class="messages-section">
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Your Messages</h3>
+                <div id="messages" class="space-y-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+
+        // Load messages for the current user
+        function loadMessages() {
+            if (!currentUser) return;
+            const messages = JSON.parse(localStorage.getItem('zmailMessages')) || [];
+            const userMessages = messages.filter(msg => msg.recipientEmail === currentUser.email);
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.innerHTML = '';
+            if (userMessages.length === 0) {
+                messagesDiv.innerHTML = `<p class="text-gray-500">No messages for ${currentUser.email}.</p>`;
+            } else {
+                userMessages.forEach(msg => {
+                    const messageElement = document.createElement('div');
+                    messageElement.className = 'bg-white p-4 rounded-lg shadow border-l-4 border-blue-500';
+                    messageElement.innerHTML = `
+                        <p><strong>From:</strong> ${msg.senderEmail}</p>
+                        <p><strong>Subject:</strong> ${msg.subject}</p>
+                        <p class="mt-2">${msg.message}</p>
+                        <p class="text-sm text-gray-500 mt-2">Sent: ${msg.timestamp}</p>
+                    `;
+                    messagesDiv.appendChild(messageElement);
+                });
+            }
+        }
+
+        // Sign up
+        function signup() {
+            const email = document.getElementById('signupEmail').value.trim();
+            const password = document.getElementById('signupPassword').value.trim();
+            if (!email || !password) {
+                alert('Please fill in all fields.');
+                return;
+            }
+            const users = JSON.parse(localStorage.getItem('zmailUsers')) || [];
+            if (users.some(user => user.email === email)) {
+                alert('Email already registered.');
+                return;
+            }
+            users.push({ email, password });
+            localStorage.setItem('zmailUsers', JSON.stringify(users));
+            alert('Account created! Please log in.');
+            showLogin();
+        }
+
+        // Log in
+        function login() {
+            const email = document.getElementById('loginEmail').value.trim();
+            const password = document.getElementById('loginPassword').value.trim();
+            const loginButton = document.getElementById('loginButton');
+            loginButton.disabled = true;
+            loginButton.textContent = 'Logging in...';
+            const users = JSON.parse(localStorage.getItem('zmailUsers')) || [];
+            const user = users.find(user => user.email === email && user.password === password);
+            setTimeout(() => {
+                if (!user) {
+                    alert('Invalid email or password.');
+                    loginButton.disabled = false;
+                    loginButton.textContent = 'Log In';
+                    return;
+                }
+                currentUser = { email };
+                localStorage.setItem('zmailCurrentUser', email);
+                document.getElementById('userEmailDisplay').textContent = email;
+                document.getElementById('authSection').classList.add('hidden');
+                document.getElementById('appSection').classList.remove('hidden');
+                loadMessages();
+                loginButton.disabled = false;
+                loginButton.textContent = 'Log In';
+            }, 500);
+        }
+
+        // Log out
+        function logout() {
+            currentUser = null;
+            localStorage.removeItem('zmailCurrentUser');
+            document.getElementById('authSection').classList.remove('hidden');
+            document.getElementById('appSection').classList.add('hidden');
+            document.getElementById('loginEmail').value = '';
+            document.getElementById('loginPassword').value = '';
+        }
+
+        // Send message
+        function sendMessage() {
+            if (!currentUser) {
+                alert('Please log in.');
+                return;
+            }
+            const recipientEmail = document.getElementById('recipientEmail').value.trim();
+            const subject = document.getElementById('subject').value.trim();
+            const message = document.getElementById('message').value.trim();
+            if (!recipientEmail || !subject || !message) {
+                alert('Please fill in all fields.');
+                return;
+            }
+            const timestamp = new Date().toLocaleString();
+            const newMessage = {
+                senderEmail: currentUser.email,
+                recipientEmail,
+                subject,
+                message,
+                timestamp
+            };
+            const messages = JSON.parse(localStorage.getItem('zmailMessages')) || [];
+            messages.push(newMessage);
+            localStorage.setItem('zmailMessages', JSON.stringify(messages));
+            document.getElementById('recipientEmail').value = '';
+            document.getElementById('subject').value = '';
+            document.getElementById('message').value = '';
+            alert(`Message sent to ${recipientEmail}!`);
+            loadMessages();
+        }
+
+        // Toggle between login and signup forms
+        function showSignup() {
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('signupForm').classList.remove('hidden');
+        }
+        function showLogin() {
+            document.getElementById('signupForm').classList.add('hidden');
+            document.getElementById('loginForm').classList.remove('hidden');
+            document.getElementById('signupEmail').value = '';
+            document.getElementById('signupPassword').value = '';
+        }
+
+        // Check for logged-in user on page load
+        window.onload = function() {
+            const savedUserEmail = localStorage.getItem('zmailCurrentUser');
+            if (savedUserEmail) {
+                const users = JSON.parse(localStorage.getItem('zmailUsers')) || [];
+                const user = users.find(user => user.email === savedUserEmail);
+                if (user) {
+                    currentUser = { email: savedUserEmail };
+                    document.getElementById('userEmailDisplay').textContent = savedUserEmail;
+                    document.getElementById('authSection').classList.add('hidden');
+                    document.getElementById('appSection').classList.remove('hidden');
+                    loadMessages();
+                } else {
+                    localStorage.removeItem('zmailCurrentUser');
+                }
+            }
+        };
+    </script>
+</body>
+</html>
